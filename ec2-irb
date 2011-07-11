@@ -1,0 +1,89 @@
+#!/usr/bin/ruby
+
+# An interactive IRB like interface for EC2
+#
+# Based on stomp-irb by R.I.Pienaar https://github.com/ripienaar/stomp-irb/
+
+require 'yaml'
+require 'rubygems'
+require 'stomp'
+require 'pp'
+require 'irb'
+require 'optparse'
+require 'json'
+require 'AWS'
+require 'awesome_print'
+
+def consolize(&block)
+    yield
+
+    IRB.setup(nil)
+    irb = IRB::Irb.new
+    IRB.conf[:MAIN_CONTEXT] = irb.context
+    irb.context.evaluate("require 'irb/completion'", 0)
+
+    install_alias_method :help, :ec2_help, IRB::ExtendCommandBundle::OVERRIDE_ALL
+
+    trap("SIGINT") do
+        irb.signal_handle
+    end
+    catch(:IRB_EXIT) do
+        irb.eval_input
+    end
+end
+
+def ec2_help
+    puts <<EOF
+    Interactive Ruby Shell for EC2
+    ================================
+
+    list                                        - list all instances
+    describe instance_id                        - describe instance
+    verbose                                     - enable verbose mode
+
+EOF
+end
+
+def present(data)
+    pp data
+    # ap data, :indent => -2, :multiline => false
+end
+
+def verbose
+    @options[:verbose] ? @options[:verbose] = false : @options[:verbose] = true
+end
+
+def list
+    data = @ec2.describe_instances
+    reservationSets = data["reservationSet"]["item"]
+    items = reservationSets.map do |r|
+        r["instancesSet"]["item"][0]
+    end
+    item_ids = items.map do |i|
+        i["instanceId"]
+    end
+    present item_ids
+end
+
+def describe(instance_id, opts={})
+    opts = opts.merge :instance_id => instance_id
+    data = @ec2.describe_instances(opts)
+    present data
+end
+
+consolize do
+
+    @options = {}
+    @options[:verbose] = false
+
+    opt = OptionParser.new
+
+    opt.parse!
+
+    @ec2 = AWS::EC2::Base.new
+
+    puts "Interactive Ruby shell for EC2"
+    puts
+    puts "Type 'help' for usage instructions"
+    puts
+end
